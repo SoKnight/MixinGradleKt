@@ -1,7 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
+
 plugins {
     `java-gradle-plugin`
     `maven-publish`
-    groovy // TODO: remove after full Kotlin migration
     alias(libs.plugins.gradleutils)
     alias(libs.plugins.kotlin.jvm)
 }
@@ -13,9 +14,16 @@ base {
     archivesName.set("mixingradle")
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+    coreLibrariesVersion = libs.versions.kotlin.get()
+
+    compilerOptions {
+        jvmDefault = JvmDefaultMode.NO_COMPATIBILITY
+    }
+
+    jvmToolchain {
+        languageVersion = JavaLanguageVersion.of(8)
+    }
 }
 
 repositories {
@@ -24,7 +32,6 @@ repositories {
 }
 
 dependencies {
-    implementation("com.google.guava:guava:21.0")
     implementation("org.ow2.asm:asm-tree:9.2")
 }
 
