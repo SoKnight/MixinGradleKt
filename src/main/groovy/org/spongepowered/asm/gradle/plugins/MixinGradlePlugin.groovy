@@ -31,7 +31,7 @@ import org.gradle.api.Project
 import org.gradle.api.file.ProjectLayout
 import org.gradle.api.internal.tasks.DefaultSourceSet
 import org.gradle.api.tasks.SourceSet
-import org.gradle.util.VersionNumber
+import org.gradle.util.internal.VersionNumber
 
 import javax.inject.Inject
 

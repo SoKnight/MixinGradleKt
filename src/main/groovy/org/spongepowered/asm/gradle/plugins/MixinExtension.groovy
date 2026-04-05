@@ -41,11 +41,14 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.SourceSet
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
+import org.gradle.work.DisableCachingByDefault
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.tasks.Jar
-import org.gradle.util.VersionNumber
+import org.gradle.util.internal.VersionNumber
 import org.spongepowered.asm.gradle.plugins.meta.Imports
 import org.spongepowered.asm.gradle.plugins.struct.DynamicProperties
 import java.util.Map.Entry
@@ -60,6 +63,7 @@ public class MixinExtension {
      * Task to contribute generated mappings from the AP to the downstream reobf
      * tasks
      */
+    @DisableCachingByDefault(because = "Deferred configuration task")
     static abstract class ConfigureReobfTask extends DefaultTask {
         
         /**
@@ -104,6 +108,7 @@ public class MixinExtension {
     /**
      * Reobf configuration task for userdev projects
      */
+    @DisableCachingByDefault(because = "Deferred configuration task")
     static class ConfigureReobfTaskForUserDev extends ConfigureReobfTask {
         
         @Override
@@ -125,6 +130,7 @@ public class MixinExtension {
     /**
      * Reobf configuration task for patcher projects
      */
+    @DisableCachingByDefault(because = "Deferred configuration task")
     static class ConfigureReobfTaskForPatcher extends ConfigureReobfTask {
 
         @Override
@@ -165,6 +171,7 @@ public class MixinExtension {
      * Task which contributes generated refmap from configured sourcesets, and
      * configs declared by the user, to the (pre-obf) jar
      */
+    @DisableCachingByDefault(because = "Mixin jar contribution task")
     static class AddMixinsToJarTask extends DefaultTask {
         
         @Internal
@@ -176,7 +183,7 @@ public class MixinExtension {
         @Input
         Set<Task> reobfTasks
 
-        @InputFiles
+        @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
         Set<File> jarRefMaps = []
         
         @TaskAction
@@ -314,13 +321,6 @@ public class MixinExtension {
     boolean disableTargetExport
     
     /**
-     * Disables the part of this plugin that tries to add IDE 
-     * integration for the AP to eclipse. Useful if something goes wrong, or
-     * you want to manage that part yourself.
-     */
-    boolean disableEclipseAddon
-    
-    /**
      * Disables the overwrite checking functionality which raises warnings when
      * overwrite methods are not appropriately decorated 
      */
@@ -406,10 +406,6 @@ public class MixinExtension {
             throw new InvalidUserDataException("Could not find property 'minecraft', or 'patcher' on $project, ensure ForgeGradle is applied.")
         }
         
-        if (!this.disableEclipseAddon) {
-            MixinEclipse.configure(this, this.project)
-        }
-        
         this.init(this.project, this.projectType)
     }
     
@@ -491,13 +487,6 @@ public class MixinExtension {
      */
     void disableTargetExport() {
         this.disableTargetExport = true
-    }
-    
-    /**
-     * Directive version of {@link #disableEclipseAddon}
-     */
-    void disableEclipseAddon() {
-        this.disableEclipseAddon = true
     }
     
     /**
