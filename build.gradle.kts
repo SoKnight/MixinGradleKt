@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "org.spongepowered"
-version = "${project.property("buildVersion")}-SNAPSHOT"
+version = "0.7-SNAPSHOT"
 
 base {
     archivesName.set("mixingradle")
