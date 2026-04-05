@@ -10,15 +10,13 @@ import org.gradle.api.artifacts.ResolvedArtifact
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.tasks.Jar
 import org.gradle.util.internal.VersionNumber
 import org.spongepowered.asm.gradle.plugins.meta.Imports
 import org.spongepowered.asm.gradle.plugins.struct.DynamicProperties
-import org.spongepowered.asm.gradle.plugins.task.AddMixinsToJarTask
-import org.spongepowered.asm.gradle.plugins.task.ConfigureReobfTaskForPatcher
-import org.spongepowered.asm.gradle.plugins.task.ConfigureReobfTaskForUserDev
-import org.spongepowered.asm.gradle.plugins.task.refMaps
+import org.spongepowered.asm.gradle.plugins.task.*
 import java.io.File
 import java.io.PrintWriter
 import java.nio.file.Files
@@ -58,8 +56,8 @@ open class MixinExtension(private val project: Project) {
     val mappings: File?
         get() = when {
             reobfSrgFile != null -> project.file(reobfSrgFile!!)
-            projectType == "userdev" -> project.tasks.getByName("createMcpToSrg").outputs.files.singleFile
-            projectType == "patcher" -> project.tasks.getByName("createMcp2Srg").outputs.files.singleFile
+            projectType == "userdev" -> project.tasks.findByName("createMcpToSrg")?.outputs?.files?.singleFile
+            projectType == "patcher" -> project.tasks.findByName("createMcp2Srg")?.outputs?.files?.singleFile
             else -> null
         }
 
@@ -154,11 +152,17 @@ open class MixinExtension(private val project: Project) {
     private fun gatherReobfTasks() {
         when (projectType) {
             "userdev" -> {
-                val reobf = project.extensions.getByName("reobf") as Iterable<*>
-                reobf.filterIsInstance<Task>().forEach { reobfTasks.add(it) }
+                // FG 7+: 'reobf' extension no longer exists, look for renamer tasks instead
+                val reobf = project.extensions.findByName("reobf") as? Iterable<*>
+                if (reobf != null) {
+                    reobf.filterIsInstance<Task>().forEach { reobfTasks.add(it) }
+                } else {
+                    // Try renamer plugin's 'renameJar' task
+                    project.tasks.findByName("renameJar")?.let { reobfTasks.add(it) }
+                }
             }
             "patcher" -> {
-                val reobfJar = project.property("reobfJar")
+                val reobfJar = project.findProperty("reobfJar")
                 if (reobfJar is Task) reobfTasks.add(reobfJar)
             }
         }
@@ -178,8 +182,12 @@ open class MixinExtension(private val project: Project) {
             .forEach { upstream ->
                 val depProject = project.project(upstream.path)
                 val mixinExt = depProject.extensions.findByName("mixin") as? MixinExtension ?: return@forEach
-                val reobf = project.extensions.getByName("reobf") as Iterable<*>
-                reobf.filterIsInstance<Task>().forEach { mixinExt.reobfTasks.add(it) }
+                val reobf = project.extensions.findByName("reobf") as? Iterable<*>
+                if (reobf != null) {
+                    reobf.filterIsInstance<Task>().forEach { mixinExt.reobfTasks.add(it) }
+                } else {
+                    project.tasks.findByName("renameJar")?.let { mixinExt.reobfTasks.add(it) }
+                }
             }
     }
 
@@ -227,8 +235,8 @@ open class MixinExtension(private val project: Project) {
         set.ext.set("refMapFile", refMapFile)
 
         when (this.projectType) {
-            "userdev" -> compileTask.dependsOn("createMcpToSrg")
-            "patcher" -> compileTask.dependsOn("createMcp2Srg")
+            "userdev" -> project.tasks.findByName("createMcpToSrg")?.let { compileTask.dependsOn(it) }
+            "patcher" -> project.tasks.findByName("createMcp2Srg")?.let { compileTask.dependsOn(it) }
         }
 
         compileTask.doFirst {
@@ -263,18 +271,26 @@ open class MixinExtension(private val project: Project) {
     }
 
     private fun configureJarTasks(compileTask: JavaCompile, taskSpecificRefMap: ArtefactSpecificRefmap, projectType: String) {
-        project.tasks.withType(Jar::class.java).configureEach { jarTask ->
+        project.tasks.withType(Jar::class.java).all { jarTask ->
             val taskName = "addMixinsTo${jarTask.name.replaceFirstChar { it.uppercase() }}"
-            val addTask = project.tasks.maybeCreate(taskName, AddMixinsToJarTask::class.java).apply {
-                doFirst { checkForAnnotationProcessors() }
-                extension = this@MixinExtension
-                dependsOn(compileTask)
-                remappedJar = jarTask
-                reobfTasks = this@MixinExtension.reobfTasks
-                jarRefMaps.add(taskSpecificRefMap)
+
+            val addTaskProvider: TaskProvider<AddMixinsToJarTask> = if (project.tasks.names.contains(taskName)) {
+                project.tasks.named(taskName, AddMixinsToJarTask::class.java)
+            } else {
+                project.tasks.register(taskName, AddMixinsToJarTask::class.java)
             }
-            jarTask.dependsOn(addTask)
-            addMixinsToJarTasks.add(addTask)
+
+            addTaskProvider.configure { task ->
+                task.doFirst { checkForAnnotationProcessors() }
+                task.extension = this@MixinExtension
+                task.dependsOn(compileTask)
+                task.remappedJar = jarTask
+                task.reobfTasks = this@MixinExtension.reobfTasks
+                task.jarRefMaps.add(taskSpecificRefMap)
+            }
+
+            jarTask.dependsOn(addTaskProvider)
+            addMixinsToJarTasks.add(addTaskProvider.get())
 
             if (projectType == "patcher" && jarTask.name == "universalJar") {
                 project.logger.info("Contributing refmap ({}) to {} in {}", taskSpecificRefMap, jarTask.archiveFileName.get(), project)
@@ -293,11 +309,18 @@ open class MixinExtension(private val project: Project) {
 
         for (reobfTask in reobfTasks) {
             val taskName = "configureReobfTaskFor${reobfTask.name.replaceFirstChar { it.uppercase() }}"
-            val configTask = project.tasks.maybeCreate(taskName, taskType).apply {
-                this.reobfTask = reobfTask
-                mappingFiles.add(tsrgFile)
+            val configTaskProvider: TaskProvider<out ConfigureReobfTaskBase> = if (project.tasks.names.contains(taskName)) {
+                project.tasks.named(taskName, taskType)
+            } else {
+                project.tasks.register(taskName, taskType)
             }
-            reobfTask.dependsOn(configTask)
+
+            configTaskProvider.configure { task ->
+                task.reobfTask = reobfTask
+                task.mappingFiles.add(tsrgFile)
+            }
+
+            reobfTask.dependsOn(configTaskProvider)
         }
     }
 
@@ -349,11 +372,11 @@ open class MixinExtension(private val project: Project) {
 
         throw MixinGradleException(
             "Gradle ${project.gradle.gradleVersion} was detected but the mixin dependency was missing from one or more " +
-            "Annotation Processor configurations: $missingAPNames. To enable the Mixin AP please include the mixin " +
-            "processor artefact in each Annotation Processor configuration. For example if you are using mixin dependency " +
-            "'org.spongepowered:mixin:$mixinVersion' you should specify: dependencies { $addAPName " +
-            "'org.spongepowered:mixin:$mixinVersion:processor' }$eachOfThese. If you believe you are seeing this message " +
-            "in error, you can disable this check via disableAnnotationProcessorCheck() in your mixin { } block."
+                    "Annotation Processor configurations: $missingAPNames. To enable the Mixin AP please include the mixin " +
+                    "processor artefact in each Annotation Processor configuration. For example if you are using mixin dependency " +
+                    "'org.spongepowered:mixin:$mixinVersion' you should specify: dependencies { $addAPName " +
+                    "'org.spongepowered:mixin:$mixinVersion:processor' }$eachOfThese. If you believe you are seeing this message " +
+                    "in error, you can disable this check via disableAnnotationProcessorCheck() in your mixin { } block."
         )
     }
 
