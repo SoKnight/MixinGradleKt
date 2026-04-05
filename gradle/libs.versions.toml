@@ -1,0 +1,7 @@
+[versions]
+gradleutils = "2.+"
+kotlin = "2.3.20"
+
+[plugins]
+gradleutils = { id = "net.minecraftforge.gradleutils", version.ref = "gradleutils" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
