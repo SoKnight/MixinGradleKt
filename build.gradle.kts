@@ -37,7 +37,7 @@ dependencies {
 
 gradlePlugin {
     website.set("http://www.gradle.org/")
-    vcsUrl.set("https://github.com/SpongePowered/MixinGradle")
+    vcsUrl.set("https://github.com/SoKnight/MixinGradleKt")
 
     plugins {
         create("patcher") {
