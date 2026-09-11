@@ -161,6 +161,7 @@ open class MixinExtension(private val project: Project) {
                     project.tasks.findByName("renameJar")?.let { reobfTasks.add(it) }
                 }
             }
+
             "patcher" -> {
                 val reobfJar = project.findProperty("reobfJar")
                 if (reobfJar is Task) reobfTasks.add(reobfJar)
@@ -183,6 +184,7 @@ open class MixinExtension(private val project: Project) {
                 val depProject = project.project(upstream.path)
                 val mixinExt = depProject.extensions.findByName("mixin") as? MixinExtension ?: return@forEach
                 val reobf = project.extensions.findByName("reobf") as? Iterable<*>
+
                 if (reobf != null) {
                     reobf.filterIsInstance<Task>().forEach { mixinExt.reobfTasks.add(it) }
                 } else {
@@ -200,8 +202,10 @@ open class MixinExtension(private val project: Project) {
     private fun applyDefault() {
         if (!applyDefault) return
         applyDefault = false
+
         project.logger.info("No sourceSets added for mixin processing, applying defaults")
         disableRefMapWarning = true
+
         project.sourceSets.forEach { set ->
             if (!set.ext.has("refMap")) {
                 set.ext.set("refMap", "mixin.refmap.json")
@@ -239,21 +243,23 @@ open class MixinExtension(private val project: Project) {
             "patcher" -> project.tasks.findByName("createMcp2Srg")?.let { compileTask.dependsOn(it) }
         }
 
+        // what the task needs of its extensions is taken here: they are out of reach once it runs
         compileTask.doFirst {
-            val currentRefMap = compileTask.ext.get("refMap") as String
-            val existing = refMaps[currentRefMap]
+            val existing = refMaps[refMapName]
             if (!disableRefMapWarning && existing != null) {
-                project.logger.warn(
+                compileTask.logger.warn(
                     "Potential refmap conflict. Duplicate refmap name {} specified for sourceSet {}, already defined for sourceSet {}",
-                    currentRefMap, set.name, existing
+                    refMapName, set.name, existing
                 )
             } else {
-                refMaps[currentRefMap] = set.name
+                refMaps[refMapName] = set.name
             }
+
             refMapFile.delete()
             tsrgFile.delete()
             checkTokens()
-            applyCompilerArgs(compileTask)
+
+            applyCompilerArgs(compileTask, tsrgFile, refMapFile)
         }
 
         val taskSpecificRefMap = ArtefactSpecificRefmap(refMapFile.parentFile, refMapName)
@@ -285,6 +291,7 @@ open class MixinExtension(private val project: Project) {
                 task.extension = this@MixinExtension
                 task.dependsOn(compileTask)
                 task.remappedJar = jarTask
+                jarTask.refMaps.from(task.remappedJarRefMaps)
                 task.reobfTasks = this@MixinExtension.reobfTasks
                 task.jarRefMaps.add(taskSpecificRefMap)
             }
@@ -372,11 +379,11 @@ open class MixinExtension(private val project: Project) {
 
         throw MixinGradleException(
             "Gradle ${project.gradle.gradleVersion} was detected but the mixin dependency was missing from one or more " +
-                    "Annotation Processor configurations: $missingAPNames. To enable the Mixin AP please include the mixin " +
-                    "processor artefact in each Annotation Processor configuration. For example if you are using mixin dependency " +
-                    "'org.spongepowered:mixin:$mixinVersion' you should specify: dependencies { $addAPName " +
-                    "'org.spongepowered:mixin:$mixinVersion:processor' }$eachOfThese. If you believe you are seeing this message " +
-                    "in error, you can disable this check via disableAnnotationProcessorCheck() in your mixin { } block."
+            "Annotation Processor configurations: $missingAPNames. To enable the Mixin AP please include the mixin " +
+            "processor artefact in each Annotation Processor configuration. For example if you are using mixin dependency " +
+            "'org.spongepowered:mixin:$mixinVersion' you should specify: dependencies { $addAPName " +
+            "'org.spongepowered:mixin:$mixinVersion:processor' }$eachOfThese. If you believe you are seeing this message " +
+            "in error, you can disable this check via disableAnnotationProcessorCheck() in your mixin { } block."
         )
     }
 
@@ -421,13 +428,13 @@ open class MixinExtension(private val project: Project) {
 
     // -- Compiler Args --
 
-    private fun applyCompilerArgs(compileTask: JavaCompile) {
+    private fun applyCompilerArgs(compileTask: JavaCompile, outTsrgFile: File, outRefMapFile: File) {
         val mappingsFile = mappings ?: return
         val args = compileTask.options.compilerArgs
 
         args += "-AreobfTsrgFile=${mappingsFile.canonicalPath}"
-        args += "-AoutTsrgFile=${(compileTask.ext.get("outTsrgFile") as File).canonicalPath}"
-        args += "-AoutRefMapFile=${(compileTask.ext.get("refMapFile") as File).canonicalPath}"
+        args += "-AoutTsrgFile=${outTsrgFile.canonicalPath}"
+        args += "-AoutRefMapFile=${outRefMapFile.canonicalPath}"
         args += "-AmappingTypes=tsrg"
         args += "-ApluginVersion=${MixinGradlePlugin.VERSION}"
 

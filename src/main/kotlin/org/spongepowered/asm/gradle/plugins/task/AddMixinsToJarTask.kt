@@ -4,12 +4,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.Task
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.plugins.ExtensionAware
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.*
 import org.gradle.jvm.tasks.Jar
 import org.gradle.work.DisableCachingByDefault
 import org.spongepowered.asm.gradle.plugins.ArtefactSpecificRefmap
@@ -24,6 +19,9 @@ open class AddMixinsToJarTask : DefaultTask() {
 
     @Input
     lateinit var remappedJar: Jar
+
+    @Internal
+    val remappedJarRefMaps: ConfigurableFileCollection = project.objects.fileCollection()
 
     @Input
     var reobfTasks: Set<Task> = mutableSetOf()
@@ -63,8 +61,10 @@ open class AddMixinsToJarTask : DefaultTask() {
     private fun contributeRefMaps(jarTask: Jar, reobfTask: Task) {
         for (refMap in jarRefMaps.filterIsInstance<ArtefactSpecificRefmap>()) {
             val archiveName = jarTask.archiveFileName.get()
-            project.logger.info("Contributing refmap ({}) to {} in {}", refMap.refMap, archiveName, reobfTask.project)
-            jarTask.refMaps.from(refMap)
+
+            logger.info("Contributing refmap ({}) to {} for {}", refMap.refMap, archiveName, reobfTask.path)
+            remappedJarRefMaps.from(refMap)
+
             jarTask.from(refMap) { spec ->
                 spec.into(refMap.refMap.parent ?: "")
             }
@@ -76,7 +76,8 @@ open class AddMixinsToJarTask : DefaultTask() {
         if (jarTask.manifest.attributes.containsKey("MixinConfigs")) return
 
         val csv = extension.configNames.joinToString(",")
-        project.logger.info("Contributing configs ({}) to manifest of {} in {}", csv, jarTask.archiveFileName.get(), reobfTask.project)
+
+        logger.info("Contributing configs ({}) to manifest of {} for {}", csv, jarTask.archiveFileName.get(), reobfTask.path)
         jarTask.manifest.attributes["MixinConfigs"] = csv
     }
 }

@@ -24,10 +24,10 @@ abstract class ConfigureReobfTaskBase : DefaultTask() {
     fun run() {
         for (mappingFile in mappingFiles) {
             if (mappingFile.exists()) {
-                project.logger.info("Contributing tsrg mappings ({}) to {} in {}", mappingFile, reobfTask.name, reobfTask.project)
+                logger.info("Contributing TSRG mappings ({}) to {}", mappingFile, reobfTask.path)
                 addMappingFile(mappingFile)
             } else {
-                project.logger.debug("Tsrg file ({}) not found, skipping", mappingFile)
+                logger.debug("TSRG file ({}) not found, skipping", mappingFile)
             }
         }
     }
